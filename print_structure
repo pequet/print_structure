@@ -1,0 +1,134 @@
+#!/bin/bash
+
+#  /print_structure
+#  ├──  Version:  1.0.0
+#  ├──  Author:   Benjamin Pequet
+#  └──  Github:   https://github.com/pequet/print_structure/
+
+# Generates a tree-like structure of a given directory within a specified target directory.
+# Keep it clean. Design with intent.
+
+# Source configuration file
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/config.sh"
+
+# Function: print_structure
+# Description: Recursively prints directory structure in a tree-like format
+# Internal Parameters:
+#   $1 - path to the directory
+#   $2 - current indentation level (managed internally for recursion)
+#   $3 - output file to write the structure
+#   $4 - levels of indentation to maintain open state (managed internally for tree structure)
+print_structure() {
+    shopt -s dotglob  # Include hidden files in the glob
+    local path=$1
+    local indent=$2
+    local output_file=$3
+    local level_open=("${!4}")
+
+    local dirs=()
+    local files=()
+    
+    for item in "$path"/*; do
+        local base_item=$(basename "$item")
+        local skip_item=false
+
+        # Check if the item should be ignored based on unwanted files array
+        for pattern in "${UNWANTED_FILES[@]}"; do
+            if [[ "$item" == $pattern || "$item" == */"$pattern" ]]; then
+                skip_item=true
+                break
+            fi
+        done
+
+        # Skip the unwanted item
+        if [ "$skip_item" = true ]; then
+            continue
+        fi
+
+        if [ -d "$item" ]; then
+            dirs+=("$item")
+        elif [ -f "$item" ]; then
+            files+=("$item")
+        fi
+    done
+
+    # Sort directories and files alphabetically
+    IFS=$'\n' dirs=($(sort <<<"${dirs[*]}"))
+    IFS=$'\n' files=($(sort <<<"${files[*]}"))
+    unset IFS
+    
+    local all_items=("${dirs[@]}" "${files[@]}")
+    local total_items=${#all_items[@]}
+    local count=0
+
+    for item in "${all_items[@]}"; do
+        count=$((count + 1))
+        local is_last_item=false
+        [ $count -eq $total_items ] && is_last_item=true
+
+        local new_indent="$indent"
+
+        for lvl in "${level_open[@]}"; do
+            new_indent+="$lvl"
+        done
+
+        local prefix="├── "
+        [ "$is_last_item" = true ] && prefix="└── "
+
+        echo "${new_indent}${prefix}$(basename "$item")" >> "$output_file"
+
+        if [ -d "$item" ]; then
+            local next_level_open=("${level_open[@]}")
+            [ "$is_last_item" = true ] && next_level_open+=("    ") || next_level_open+=("│   ")
+            print_structure "$item" "$indent" "$output_file" next_level_open[@]
+        fi
+    done
+
+    shopt -u dotglob  # Reset globbing behavior to default
+}
+
+# Function: show_help
+# Description: Displays usage information for the script
+show_help() {
+    script_name=$(basename "$0")
+    echo "Usage: ./$script_name <folder_name> [--all]"
+    echo "Parameters:"
+    echo "  <folder_name> : The target directory to document the structure."
+    echo "  --all         : All subdirectories of target directory."
+    exit 1
+}
+
+# Check if a folder name is provided
+[ $# -eq 0 ] && show_help
+
+folder_name=$1
+all_subdirs=false
+
+# Check if the --all flag is set
+if [ "$2" == "--all" ]; then
+    all_subdirs=true
+fi
+
+# Main function 
+generate_structure() {
+    local target_dir=$1
+    local output_file="$target_dir/structure.txt"
+    : > "$output_file"
+
+    echo "$(basename "$target_dir")/" >> "$output_file"
+    initial_level_open=()
+    print_structure "$target_dir" "" "$output_file" initial_level_open[@]
+
+    # Append the date at the bottom of the structure
+    echo "Generated on: $(date '+%Y-%m-%d %H:%M:%S')" >> "$output_file"
+}
+
+# Main execution logic
+if [ "$all_subdirs" = true ]; then
+    for subdir in "$folder_name"/*/; do
+        generate_structure "$subdir"
+    done
+else
+    generate_structure "$folder_name"
+fi
